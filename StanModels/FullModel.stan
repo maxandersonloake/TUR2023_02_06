@@ -20,6 +20,7 @@ data {
   int<lower=1, upper=N_buildingTypes> buildingTypes[N_buildings];
   int<lower=0> buildingtype_counts[N_cities, N_buildingTypes]; 
   real<lower=0> mean_PGV[N_cities];
+  real<lower=0> dirmult_dispersion;
   
   //ministrys data
   int<lower=0> N_buildings_ministrys;
@@ -47,7 +48,6 @@ parameters {
   simplex[N_buildingTypes] zone_means[N_zones];        
   simplex[N_buildingTypes] city_means[N_cities];     
   simplex[N_zones] zone_probs;
-  real<lower=0> dirmult_dispersion;
   
   //missingness Model:
   real<lower=0.05, upper=1> nu_0;

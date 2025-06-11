@@ -411,6 +411,7 @@ stan_data <- list(
   cities = cities,
   buildingtype_counts = buildingtype_counts,
   mean_PGV = mean_PGV_by_city$mean_PGV[match(levels(field_data$City), mean_PGV_by_city$City)],
+  dirmult_dispersion=10,
   
   # Ministrys Data:
   N_buildings_ministrys = NROW(ministrys_df),
@@ -421,7 +422,7 @@ stan_data <- list(
   
   # Priors:
   prior_frag_structure_type = prior_frag_structure_type,
-  buildingtypes_priorprob = buildingtypes_priorprob,
+  buildingtypes_priorprob = buildingtypes_priorprob
   
   #p_ministrys_unobserved_param= 1900
 )
@@ -431,25 +432,28 @@ control = list(adapt_delta = 0.99, max_treedepth = 15)
 fit <- sampling(
   stan_model_compiled,  # Use the precompiled model
   data = stan_data,
-  iter = 3000,
+  iter = 2000,
   chains = 3,
-  warmup = 2000, 
+  warmup = 1000, 
   control = list(max_treedepth=15)
 )
+
+saveRDS(fit,paste0(dir, 'StanFits/full_model_fit_', Sys.Date()))
 
 #----------------------------------------------------------------------------------------------
 #----------------------------------- MCMC Diagnostics -----------------------------------------
 #----------------------------------------------------------------------------------------------
 
-traceplot(fit, pars=c('nu_1'))
+traceplot(fit, pars=c('nu_0'))
 
 rhats <- summary(fit)$summary[,"Rhat"]
 rhats[which(rhats > 1.02)]
-traceplot(fit, pars='zone_means[7,4]')
+rstan::traceplot(fit, pars='zone_means[7,4]')
 
 #----------------------------------------------------------------------------------------------
 #----------------------------------- Posterior Analysis -----------------------------------------
 #----------------------------------------------------------------------------------------------
+library(MCMCpack)
 
 #Prior vs posterior probability of building types (in a city)
 posterior_samples <- as_draws_df(fit)
@@ -463,27 +467,27 @@ colnames(prior_samps) <- structure_types
 n_samples = 10000
 zone_means_prior = rdirichlet(n_samples, 10*buildingtypes_priorprob)
 city_means_prior = rdirichlet(n_samples, 10*buildingtypes_priorprob)
-lambda <- stan_data$lambda  # or sample from its prior
-dirmult_spread <- rinvgamma(n_samples, 6, 50)  # adjust to match your prior, or sample from gamma(2, 0.1)
+lambda_prior <- runif(n_samples, 0.5, 0.8)#stan_data$lambda  # or sample from its prior
+dirmult_dispersion <- 10#rinvgamma(n_samples, 6, 50)  # adjust to match your prior, or sample from gamma(2, 0.1)
 
 # Storage for buildingTypeProbs (softmax of sampled logits)
 prior_samps <- array(NA, dim = c(n_samples, stan_data$N_buildingTypes))
 
 for (i in 1:n_samples) {
   # Mixture mean per Stan model
-  mixture_mean <- lambda * zone_means_prior[i, ] + (1 - lambda) * city_means_prior[i, ]
+  mixture_mean <- lambda_prior[i] * zone_means_prior[i, ] + (1 - lambda_prior[i]) * city_means_prior[i, ]
   
   # Equivalent Dirichlet mean scaled by concentration
-  alpha <- dirmult_spread[i] * mixture_mean
+  alpha <- dirmult_dispersion * mixture_mean
   
   # Logit-normal approximation: sample logits ~ normal(log(alpha), sd)
-  logit_sd <- 0.5  # Matches Stan model: raw_logits ~ normal(log(alpha), 0.5)
-  logits <- rnorm(stan_data$N_buildingTypes, mean = log(alpha), sd = logit_sd)
+  #logit_sd <- 0.5  # Matches Stan model: raw_logits ~ normal(log(alpha), 0.5)
+  #logits <- rnorm(stan_data$N_buildingTypes, mean = log(alpha), sd = logit_sd)
   
   # Softmax to map to simplex
-  probs <- exp(logits) / sum(exp(logits))
+  #probs <- exp(logits) / sum(exp(logits))
   
-  prior_samps[i, ] <- probs
+  prior_samps[i, ] <- rdirichlet(1,alpha)
 }
 colnames(prior_samps) <- structure_types
 
