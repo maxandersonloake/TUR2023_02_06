@@ -1,0 +1,23 @@
+# TUR2023_02_06 – Building Damage Modelling for the 2023 Türkiye/Syria Earthquake Sequence
+
+This repository contains the companion R scripts to the paper 'Accounting for biases in the analysis of building damage data for the 2023 M7.8 Türkiye/Syria earthquake sequence' by Max Anderson Loake and Kishor Jaiswal. This paper was submitted to the journal Earthquake Spectra and is currently under peer review. 
+
+The scripts use two building damage datasets to perform joint Bayesian inference over building inventory and fragility. The  repository structure is as follows:
+
+- `Functions.R`: Loads all required R packages and defines shared utility functions. It must be sourced by the other scripts before use.
+- `FullModel.R`: Performs main infererence, including loading data, defining priors, and plotting posterior distributions. 
+- `MinistrysExtractCities.R` : This script is used to reduce the size of the MEUCC dataset, filtering to buildings in the cities explored in the engineering survey data. 
+- `MinistrysAnalysis.R` : Used to perform basic fragility inference over the MEUCC data with and without accounting for building missingness. 
+-  StanModels:
+    - `StanModels/FullModel.stan` : Stan model used for full Bayesian inference of building damage fragility.
+    - `StanModels/MinistrysFragCurves.stan` : Stan model used for simple Bayesian infernece over MEUCC data, without accounting for building mislabelling
+    - `StanModels/MinistrysFragCurves_MissingAccounted.stan` : Stan model used for simple Bayesian infernece over MEUCC data, accounting for building mislabelling
+-  Data:
+-  Results:
+
+## License
+
+
+## Contact
+
+For questions about this repository or the associated analysis, please contact the repository maintainer or refer to the associated publication.
