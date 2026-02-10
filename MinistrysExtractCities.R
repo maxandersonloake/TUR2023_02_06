@@ -91,3 +91,39 @@ table(ministrys_df_filt$City)
 
 saveRDS(ministrys_df_filt, paste0(dir, 'Data/ministrys_df_filt'))
 
+
+
+ministrys_filt <- readRDS('/home/manderso/Documents/GitHub/TUR2023_02_06/Data/ministrys_df_filt')
+plot((ministrys_filt %>% filter(City=='Kahramanmaras'))$longitude, (ministrys_filt %>% filter(City=='Kahramanmaras'))$latitude)
+
+
+ExtractOSMbuild<-function(bbox,timeout=60){
+  
+  obj<-opq(bbox = bbox,timeout = timeout)%>%add_osm_feature("building") %>%
+    opq_string()%>%osmdata_sf()
+  
+  
+  obj<-obj$osm_polygons
+  inds<-st_is_valid(obj$geometry); inds[is.na(inds)]<-FALSE
+  obj<-obj[inds,]
+  # obj%<>%st_as_sf()
+  # st_crs(obj)<-st_crs("urn:ogc:def:crs:EPSG::4326")
+  obj%<>%dplyr::select(geometry)
+  #obj%<>%dplyr::select(building.levels,geometry,name)
+  #obj$building.levels%<>%as.numeric()
+  # sf::sf_use_s2(FALSE)
+  obj$area<-as.double(st_area(st_as_sf(obj$geometry)))
+  # obj$area<-vapply(1:nrow(obj),function(i) st_area(st_as_sf(obj$geometry[i])),FUN.VALUE = numeric(1))
+  obj$geometry%<>%st_centroid()
+  obj$Longitude<-st_coordinates(obj$geometry)[,1]
+  obj$Latitude<-st_coordinates(obj$geometry)[,2]
+  obj%<>%as.data.frame%>%dplyr::select(-geometry)
+  
+  return(obj)
+  
+}
+
+
+
+builds_narli = ExtractOSMbuild(bbox = rbind(c(36.8, 37), c(37.5, 37.64)))
+points(builds_narli$Longitude, builds_narli$Latitude, col='red')

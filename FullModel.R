@@ -69,6 +69,555 @@ p4 = ggplot(dam_props, aes(x=exp(`SA(3.0)_mean`), y=propDam, col=as.factor(struc
   scale_color_manual(values = setNames(colors, structure_types))
 grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
 
+
+
+
+#----------------------------------------------------------------------------------------------
+#-------------------------------------- Plot full map -----------------------------------------
+#----------------------------------------------------------------------------------------------
+library(ggplot2)
+library(sf)
+library(geodata)
+
+
+xml_loc <- paste0(dir, 'Data/ShakeMapUpd.xml.gz')
+meanhaz <- get_IMT_from_xml(xml_loc, 'psa03')
+names(meanhaz)= 'psa03_mean'
+
+# 2. Get Turkey Province Data
+turkey_sf <- st_as_sf(gadm(country = "TUR", level = 1, path = tempdir()))
+
+ministrys_df_full = readRDS(paste0(dir, 'Data/ministrys_df_full_psa'))
+
+
+library(ggplot2)
+library(sf)
+library(tidyterra) # For geom_spatraster
+library(ggnewscale) # Allows multiple fill scales
+library(cowplot)
+library(ggpubr)
+
+# Increase resolution by a factor of 4 using bilinear interpolation
+# 'fact = 4' means each pixel becomes 16 smaller pixels (4x4)
+#meanhaz_smooth <- disagg(meanhaz, fact = 8, method = "cubic")
+
+w <- focalMat(meanhaz, d=0.02, type = "Gauss")
+meanhaz_smooth <- focal(meanhaz, w = w)
+#meanhaz_smooth <- disagg(meanhaz_smooth, fact = 4, method = "near")
+#meanhaz_smooth <- disagg(meanhaz_smooth, fact = 4, method = "near")
+
+# 3. Convert smoothed raster to Data Frame
+haz_df <- as.data.frame(meanhaz_smooth, xy = TRUE)
+# Ensure you use the correct column name for the hazard values (e.g., "meanhaz" or "lyr.1")
+names(haz_df)[3] <- "hazard_val"
+
+gt_colors_meucc <- c("Undamaged" = "darkgrey", "Slightly damaged" = "yellow", "Partially collapsed" = "orange", "Moderately/severely collapsed" = "red", "Collapsed" = "darkred")
+gt_colors_survey <- c("Undamaged" = "darkgrey", "Minor" = "yellow", "Moderate damage" = "orange", "Severe damage/partial collapse" = "red", "Collapsed" = "darkred")
+
+ministrys_df_full$damage <- factor(ministrys_df_full$GT, 
+                               levels = c(0, 1, 2, 3, 4),
+                               labels = names(gt_colors_meucc))
+
+# Field Data (Survey)
+field_data$damage <- factor(field_data$GT, 
+                        levels = c(0, 1, 2, 3, 4),
+                        labels = names(gt_colors_survey))
+
+
+ministrys_plot_data <- ministrys_df_full[sample(1:nrow(ministrys_df_full), 100000), ]
+ministrys_plot_data <- ministrys_plot_data[order(ministrys_plot_data$damage), ]
+
+# Filter province labels to remove those outside or cut off by the frame
+# We calculate centroids and keep only those within your specific xlim/ylim
+map_centers <- st_centroid(turkey_sf)
+labels_filtered <- turkey_sf[st_coordinates(map_centers)[,1] > 35.89 & 
+                               st_coordinates(map_centers)[,1] < 39.36 &
+                               st_coordinates(map_centers)[,2] > 35.8 & 
+                               st_coordinates(map_centers)[,2] < 39.37, ]
+
+labels_filtered$NAME_1[4] = 'Kahramanmaras'
+
+
+#kb <- c(xmin = 36.122128, xmax = 36.184871, ymin =  36.164137,  ymax = 36.249347)
+kb <- c(xmin = 36.102128, xmax = 36.234871, ymin =  36.164137,  ymax = 36.279347)
+
+# 2. THE PLOT
+p_main = ggplot() +
+  # Base Map
+  geom_sf(data = turkey_sf, fill = "grey92", color = "black", linewidth = 0.2) +
+  
+  # Ministry Data (Plotted in order: Undamaged -> Collapsed)
+  geom_point(data = ministrys_plot_data, 
+             aes(x = longitude, y = latitude, color = damage), 
+             size = 0.1, alpha = 0.8) +
+  scale_color_manual(
+    values = gt_colors_meucc, 
+    name = "MEUCC Data",
+    guide = guide_legend(override.aes = list(size = 4, alpha = 1)) # Larger legend points
+  ) +
+  
+  # Field Data
+  geom_point(data = field_data[-471,], # one data point with erroneous latitude/latitude recording
+             aes(x = longitude, y = latitude, fill = damage), 
+             shape = 22, color = "black", size = 2, stroke = 0.7) +
+  scale_fill_manual(
+    values = gt_colors_survey, 
+    name = "Engineering Survey Data",
+    guide = guide_legend(override.aes = list(size = 4)) # Larger legend points
+  ) +
+  
+  # Reset Color for Contours
+  new_scale_color() +
+  geom_contour(data = haz_df, aes(x = x, y = y, z = hazard_val, color = after_stat(level)), 
+               linewidth = 0.6, alpha = 0.7, bins = 7) +
+  scale_color_viridis_c(
+    name = "SA[T=0.3] (g)",
+    guide = guide_colorbar(barheight = 10) # Makes the hazard scale taller/easier to read
+  ) +
+  
+  # Filtered Labels (Centroids only within view)
+  geom_sf_text(data = labels_filtered, aes(label = NAME_1), 
+               size = 4, color = "black", fontface = "bold", family = "Times New Roman") +
+  
+  # Map Outline (Clean top layer)
+  geom_sf(data = turkey_sf, fill = NA, color = "black", linewidth = 0.4) +
+  
+  # Zoom & Aesthetics
+  coord_sf(xlim = c(35.82785, 39.10934), ylim = c(35.8, 39.37362), expand = FALSE) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    legend.box = "vertical",
+    legend.margin = margin(6, 6, 6, 6),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8)
+  )# +
+  #annotate("rect",
+  #         xmin = kb["xmin"], xmax = kb["xmax"],
+  #         ymin = kb["ymin"], ymax = kb["ymax"],
+  #         fill = NA, color = "black", size = 0.8)
+
+p_main
+
+#-----------------------------------------------------
+
+turkoglu_boundary      <- c(36.830707, 36.877134, 37.366635, 37.399231)
+narli_boundary         <- c(37.127, 37.149, 37.364592, 37.406404)
+pazarcik_boundary      <- c(37.283116, 37.315828, 37.473938, 37.498906)
+kahramanmaras_boundary <- c(36.78380, 37.03423, 37.50322, 37.64026)
+nurdagi_boundary       <- c(36.715787, 36.757126, 37.170644, 37.191371)
+hassa_boundary         <- c(36.498853, 36.538504, 36.790169, 36.810662)
+islahiye_boundary      <- c(36.617287, 36.654022, 36.999779, 37.044802)
+antakya_boundary       <- c(36.102128, 36.234871, 36.164137, 36.279347)
+kirikhan_boundary      <- c(36.334894, 36.379665, 36.481456, 36.517878)
+iskendurun_boundary    <- c(36.085182, 36.232811, 36.519096, 36.653900)
+
+# Helper to add a rect layer for a named boundary
+rect_layer <- function(b, color = "red", size = 0.6, linetype = "solid") {
+  annotate("rect",
+           xmin = b[1], xmax = b[2],
+           ymin = b[3], ymax = b[4],
+           fill = NA, color = color, size = size, linetype = linetype)
+}
+
+haz_df$hazard_val = haz_df$hazard_val / 100
+which(turkey_sf$NAME_1 == 'Sanliurfa')
+
+# Rebuild p_main without the field_data layer and with rectangle annotations
+p_main <- ggplot() +
+  # Base Map
+  geom_sf(data = turkey_sf, fill = "grey92", color = "darkgrey", linewidth = 0.2) +
+  
+  # Ministry Data (Plotted in order: Undamaged -> Collapsed)
+  #geom_point(data = ministrys_plot_data, 
+  #           aes(x = longitude, y = latitude, color = damage), 
+  #           size = 0.1, alpha = 0.8) +
+  #scale_color_manual(
+  #  values = gt_colors_meucc, 
+  #  name = "MEUCC Data",
+  #  guide = guide_legend(override.aes = list(size = 4, alpha = 1))
+  #) +
+  
+  # NOTE: removed the Engineering Survey geom_point layer (field_data) per request
+  
+  # Reset Color for Contours
+  new_scale_color() +
+  geom_contour(data = haz_df, aes(x = x, y = y, z = hazard_val, color = after_stat(level)), 
+               linewidth = 0.6, alpha = 0.7, bins = 7) +
+  scale_color_viridis_c(
+    name = "SA[T=0.3] (g)",
+    guide = guide_colorbar(barheight = 10)
+  ) +
+  
+  # Filtered Labels (Centroids only within view)
+  geom_sf_text(data = labels_filtered, aes(label = NAME_1), 
+               size = 4.8, color = "black", family='Times',
+               nudge_x = ifelse(labels_filtered$NAME_1 == "Sanliurfa", -0.2, 0)) +
+  
+  # Map Outline (Clean top layer)
+  geom_sf(data = turkey_sf, fill = NA, color = "black", linewidth = 0.4) +
+  
+  # Zoom & Aesthetics
+  coord_sf(xlim = c(35.82785, 39.10934), ylim = c(35.8, 39.37362), expand = FALSE) +
+  theme_void() +
+  theme(
+    text = element_text(family = "serif"),
+    # Positioning
+    legend.position = c(0.97, 0.02),        
+    legend.justification = c(1, 0),
+    legend.box = "vertical",               
+    legend.box.just = "right",
+    legend.title = element_text(face = "bold", size = 15),
+    legend.text  = element_text(size = 15),
+    
+    # --- The Unified Legend Box ---
+    # Remove individual backgrounds
+    legend.background = element_blank(),
+    # Apply one background to the entire container
+    legend.box.background = element_rect(
+      fill = alpha("white", 0.85),
+      color = "black",
+      linewidth = 0.5
+    ),
+    legend.box.margin = margin(6, 6, 6, 6),
+    plot.margin = margin(0,4,0,0),
+    # ------------------------------
+    
+    plot.background = element_rect(fill = "white", color = NA),
+    # Changed fill = NA here to ensure the map isn't covered
+    panel.border = element_rect(color = "black", linewidth = 0.8, fill = NA)
+  ) +
+  # Add black rectangle outlines for each named boundary
+  rect_layer(turkoglu_boundary) +
+  rect_layer(narli_boundary) +
+  rect_layer(pazarcik_boundary) +
+  rect_layer(kahramanmaras_boundary) +
+  rect_layer(nurdagi_boundary) +
+  rect_layer(hassa_boundary) +
+  rect_layer(islahiye_boundary) +
+  rect_layer(antakya_boundary, linetype = "dashed") +
+  rect_layer(kirikhan_boundary) +
+  rect_layer(iskendurun_boundary)
+
+# Print the updated plot
+print(p_main)
+
+#---------- Plot only kahramanmaras ------------------
+
+kb <- c(xmin = 36.122128, xmax = 36.214871, ymin =  36.164137,  ymax = 36.249347)
+
+# Filter Ministry Data
+ministrys_kahramanmaras <- ministrys_df_full[
+  ministrys_df_full$longitude >= kb["xmin"] & ministrys_df_full$longitude <= kb["xmax"] &
+    ministrys_df_full$latitude >= kb["ymin"] & ministrys_df_full$latitude <= kb["ymax"], 
+]
+# Sort for visibility (Undamaged -> Collapsed)
+ministrys_kahramanmaras <- ministrys_kahramanmaras[order(ministrys_kahramanmaras$GT), ]
+
+# Filter Field Data
+field_kahramanmaras <- field_data[
+  field_data$longitude >= kb["xmin"] & field_data$longitude <= kb["xmax"] &
+    field_data$latitude >= kb["ymin"] & field_data$latitude <= kb["ymax"], 
+]
+
+# 2. Filter Province Labels for this specific zoom
+# Only labels whose center is inside this tight boundary
+labels_local <- turkey_sf[st_coordinates(st_centroid(turkey_sf))[,1] > kb["xmin"] & 
+                            st_coordinates(st_centroid(turkey_sf))[,1] < kb["xmax"] &
+                            st_coordinates(st_centroid(turkey_sf))[,2] > kb["ymin"] & 
+                            st_coordinates(st_centroid(turkey_sf))[,2] < kb["ymax"], ]
+
+
+p_zoom = ggplot() +
+  # Base Map
+  geom_sf(data = turkey_sf, fill = "grey92", color = "black", linewidth = 0.3) +
+  
+  # Layer 1: Ministry Data (Meucc)
+  geom_point(data = ministrys_kahramanmaras, 
+             aes(x = longitude, y = latitude, color = damage), 
+             size = 0.5, alpha = 0.9) +
+  scale_color_manual(
+    values = gt_colors_meucc, 
+    name = "MEUCC Data",
+    guide = guide_legend(override.aes = list(size = 6, alpha = 1))
+  ) +
+  
+  # Layer 2: Field Data (Engineering Survey)
+  geom_point(data = field_kahramanmaras, 
+             aes(x = longitude, y = latitude, fill = damage), 
+             shape = 22, color = "black", size = 1.5, stroke = 0.8) +
+  scale_fill_manual(
+    values = gt_colors_survey, 
+    name = "Engineering Survey Data",
+    guide = guide_legend(override.aes = list(size = 6, alpha = 1))
+  ) +
+  
+  # Zoom & Clean up
+  coord_sf(xlim = c(kb["xmin"], kb["xmax"]), ylim = c(kb["ymin"], kb["ymax"]), expand = FALSE) +
+  theme_void() +
+  theme(
+    text = element_text(family = "Times New Roman"),
+    
+    # Positioning
+    legend.position = c(1, 0.02),        
+    legend.justification = c(1, 0),
+    legend.box = "vertical",               
+    
+    # Alignment Fixes
+    legend.box.just = "left",      # Aligns the MEUCC and Engineering sections to the left of the box
+    #legend.justification = "left", # Aligns items within each legend
+    
+    legend.title = element_text(face = "bold", size = 15),
+    legend.text  = element_text(size = 15),
+    legend.margin = margin(0, 0, 0, 0),
+    
+    # --- The Unified Legend Box ---
+    legend.background = element_blank(),
+    legend.box.background = element_rect(
+      fill = alpha("white", 0.85),
+      color = "black",
+      linewidth = 0.5
+    ),
+    # Tightened margin to prevent the right-side gap
+    legend.box.margin = margin(6, -14, 6, 6), 
+    
+    plot.margin = margin(0,0,0,4),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.border = element_rect(color = "red", linewidth = 1.3, linetype = "dashed", fill = NA)
+  )
+
+p_zoom
+
+plot_grid(
+  p_main, p_zoom, 
+  nrow = 1,
+  rel_widths = c(0.46, 0.55)#,
+  #align = "h",
+  #axis = "tb"
+)
+# Data_Overview.pdf, 11.5 x 7.1
+
+# # 3. Create the Plot
+# p_zoom = ggplot() +
+#   # Base Map (Province boundaries)
+#   geom_sf(data = turkey_sf, fill = "grey92", color = "black", linewidth = 0.3) +
+#   
+#   # Layer 1: Ministry Data (Meucc)
+#   # size is increased slightly since we are zoomed in
+#   geom_point(data = ministrys_kahramanmaras, 
+#              aes(x = longitude, y = latitude, color = damage), 
+#              size = 0.5, alpha = 0.9) +
+#   scale_color_manual(
+#     values = gt_colors_meucc, 
+#     name = "MEUCC Data",
+#     guide = guide_legend(override.aes = list(size = 6, alpha = 1))
+#   ) +
+#   
+#   # Layer 2: Field Data (Engineering Survey)
+#   geom_point(data = field_kahramanmaras, 
+#              aes(x = longitude, y = latitude, fill = damage), 
+#              shape = 22, color = "black", size = 1.5, stroke = 0.8) +
+#   scale_fill_manual(
+#     values = gt_colors_survey, 
+#     name = "Engineering Survey Data",
+#     guide = guide_legend(override.aes = list(size = 6))
+#   ) +
+#   
+#   # Layer 3: Local Labels
+#   geom_sf_text(data = labels_local, aes(label = NAME_1), 
+#                size = 5, color = "black", fontface = "bold") +
+#   
+#   # Zoom & Clean up
+#   coord_sf(xlim = c(kb["xmin"], kb["xmax"]), ylim = c(kb["ymin"], kb["ymax"]), expand = FALSE) +
+#   theme_void() +
+#   theme(
+#     legend.position = c(0.98, 0.02),        # bottom-right inside plot
+#     legend.justification = c(1, 0),
+#     legend.box = "vertical",                # stack legends
+#     legend.box.just = "right",
+#     legend.title = element_text(face = "bold"),
+#     legend.background = element_rect(
+#       fill = alpha("white", 0.85),
+#       color = "black",
+#       linewidth = 0.5
+#     ),
+#     legend.margin = margin(6, 6, 6, 6),
+#     plot.background = element_rect(fill = "white", color = NA),
+#     panel.border = element_rect(color = "red", linewidth = 0.8, linetype = "dashed")
+#   )
+# 
+# p_zoom
+
+meucc_levels <- names(gt_colors_meucc)
+df_meucc_legend <- data.frame(
+  x = seq_along(meucc_levels),
+  y = 1,
+  damage = factor(meucc_levels, levels = meucc_levels)
+)
+
+p_leg_meucc <- ggplot(df_meucc_legend, aes(x = x, y = y, color = damage)) +
+  geom_point(size = 4) +
+  scale_color_manual(values = gt_colors_meucc, name = "MEUCC Data") +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(size = 9))
+
+leg_meucc_grob <- get_legend(p_leg_meucc)
+
+# Engineering Survey legend (fill with black outline)
+survey_levels <- names(gt_colors_survey)
+df_survey_legend <- data.frame(
+  x = seq_along(survey_levels),
+  y = 1,
+  damage = factor(survey_levels, levels = survey_levels)
+)
+
+p_leg_survey <- ggplot(df_survey_legend, aes(x = x, y = y, fill = damage)) +
+  geom_point(shape = 21, color = "black", size = 4, stroke = 0.7) +
+  scale_fill_manual(values = gt_colors_survey, name = "Engineering Survey Data") +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(size = 9))
+
+leg_survey_grob <- get_legend(p_leg_survey)
+
+p_for_hazard_leg <- ggplot() +
+  geom_contour(data = haz_df, aes(x = x, y = y, z = hazard_val, color = after_stat(level)), 
+               linewidth = 0.6, alpha = 0.5, bins = 7) +
+  scale_color_viridis_c(
+    name = "SA[T=0.3] (g)",
+    guide = guide_colorbar(barheight = 10) # Makes the hazard scale taller/easier to read
+  ) +
+  coord_sf(xlim = c(35.82785, 39.36934), ylim = c(35.8, 39.37362), expand = FALSE) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    legend.box = "vertical",
+    legend.margin = margin(6, 6, 6, 6),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    legend.background = element_rect(color = "black", fill = 'white', linewidth = 0.6)
+  )
+
+leg_hazard_grob <- get_legend(p_for_hazard_leg)
+
+p_main_overlaid <- ggdraw(p_main + theme(legend.position = "none")) +
+  draw_plot(
+    leg_hazard_grob, 
+    x = 0.65, y = 0.05,  # Coordinates for bottom right (0 to 1 scale)
+    width = 0.3, height = 0.3
+  )
+
+plots_row <- plot_grid(
+  p_main_overlaid + theme(plot.margin = margin(10, 10, 10, 10)),
+  p_zoom + theme(legend.position = "none"),
+  ncol = 2,
+  rel_widths = c(0.5, 0.5)
+)
+
+
+legend_block <- plot_grid(
+  leg_meucc_grob, 
+  leg_survey_grob, 
+  ncol = 1, 
+  align = "v"
+) + 
+  theme(
+    plot.background = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    plot.margin = margin(10, 10, 10, 10) # Adds internal padding inside the box
+  )
+
+# 2. Final assembly: stack the maps and the boxed legend block
+final_plot <- plot_grid(
+  plots_row,
+  plot_grid(
+    NULL, legend_block, NULL, 
+    ncol = 3, 
+    rel_widths = c(0.1, 0.8, 0.1) 
+  ),
+  ncol = 1,
+  rel_heights = c(1, 0.1) # Increased height slightly to accommodate the box padding
+) + 
+  theme(plot.background = element_rect(fill = "white", color = NA))
+
+
+final_plot
+
+
+
+
+
+
+
+
+
+# --- Create two shared legends (MEUCC and Engineering Survey) as separate grobs ---
+# Build small dummy datasets covering the factor levels so legends show all categories.
+
+# MEUCC legend (color)
+meucc_levels <- names(gt_colors_meucc)
+df_meucc_legend <- data.frame(
+  x = seq_along(meucc_levels),
+  y = 1,
+  damage = factor(meucc_levels, levels = meucc_levels)
+)
+
+p_leg_meucc <- ggplot(df_meucc_legend, aes(x = x, y = y, color = damage)) +
+  geom_point(size = 4) +
+  scale_color_manual(values = gt_colors_meucc, name = "MEUCC Data") +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(size = 9))
+
+leg_meucc_grob <- get_legend(p_leg_meucc)
+
+# Engineering Survey legend (fill with black outline)
+survey_levels <- names(gt_colors_survey)
+df_survey_legend <- data.frame(
+  x = seq_along(survey_levels),
+  y = 1,
+  damage = factor(survey_levels, levels = survey_levels)
+)
+
+p_leg_survey <- ggplot(df_survey_legend, aes(x = x, y = y, fill = damage)) +
+  geom_point(shape = 21, color = "black", size = 4, stroke = 0.7) +
+  scale_fill_manual(values = gt_colors_survey, name = "Engineering Survey Data") +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(size = 9))
+
+leg_survey_grob <- get_legend(p_leg_survey)
+
+# --- Arrange the two plots side-by-side with legends underneath ---
+# Order requested: "second plot to left, first plot to right"
+# From your instruction earlier: second plot (kahramanmaras p2) on left, first plot (main map) on right.
+# That corresponds to: left = p_zoom, right = p_main
+
+plots_row <- plot_grid(
+  p_zoom, p_main,
+  labels = c("", ""),   # no labels
+  ncol = 2,
+  rel_widths = c(0.48, 0.52)  # adjust widths if desired
+)
+
+# Combine the two legend grobs horizontally
+legend_row <- plot_grid(
+  as_ggplot(leg_meucc_grob), as_ggplot(leg_survey_grob),
+  nrow = 2
+)
+
+# Final assembly: plots on top, legends below
+plot_grid(
+  plots_row,
+  legend_row,
+  ncol = 1,
+  rel_heights = c(1, 0.12)  # allocate less space to legends
+)
+
 #----------------------------------------------------------------------------------------------
 #------------------------------- ROC Analysis to compare IMs ----------------------------------
 #----------------------------------------------------------------------------------------------
@@ -158,7 +707,8 @@ auc_block <- auc_summary %>%
       "AUC values: \n",
       paste0(sub("_.*", "", IM), ": ", round(AUC, 2), collapse = "\n")
     ),
-    x = 0.56,
+    #x = 0.56,
+    x = 0.65,
     y = 0.03,
     .groups = "drop"
   )
@@ -213,6 +763,9 @@ roc_panel <- ggplot(roc_plot_df, aes(x = FPR, y = TPR, color = sub("_.*", "", IM
 
 roc_panel
 #IM_comparison.pdf,10 x 3.1
+
+roc_panel + facet_wrap(~ structure_type, nrow = 2, scales = "fixed") 
+#IM_comparison.pdf, 7.5 x 6
 
 #----------------------------------------------------------------------------------------------
 #-------------------------------- Prepare Ministrys data --------------------------------------
@@ -673,7 +1226,7 @@ ref_curves_extended <- ref_curves %>%
   mutate(alpha_line = ifelse(structure_type == "Other",  0.05, 0.2),
          linewidth_num = ifelse(structure_type == "Other", 0.2, 0.1))
 
-ggplot(prior_ribbon_data, aes(x = PSA)) +
+PriorFragCurves = ggplot(prior_ribbon_data, aes(x = PSA)) +
   geom_line(
     data = ref_curves_extended,
     aes(x = PSA0.3, y = P_Damage, group = Building_class, alpha = alpha_line, linewidth = linewidth_num, linetype = ifelse(IMT=='SA(0.3s)',"solid", "dotted")),
@@ -699,7 +1252,12 @@ ggplot(prior_ribbon_data, aes(x = PSA)) +
   scale_alpha_identity() +
   scale_linewidth_identity() +
   scale_y_continuous(expand=expansion(mult = c(0.01,0.01)))
+
+PriorFragCurves
 # PriorFragCurves.pdf, 8.5 x 5
+
+PriorFragCurves + facet_wrap(~structure_type, ncol = 3, scales='free')
+# PriorFragCurves.pdf, 7.5 x 8 (portrait)
 
 prior_frag_structure_type$structure_type = NULL
 buildingtypes_priorprob = buildings_per_zonecity_probs 
@@ -1451,6 +2009,10 @@ combined_plot
 
 # PriorPostSuppParams.pdf, 10 x 3
 
+
+p_nu + p_kappa + p_sigma + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+#PriorPostSuppParams.pdf, 8 x 3.25
+
 #----------------------------------------------------------------------------------------------
 #----------------------------------- Posterior Analysis ---------------------------------------
 #----------------------------------------------------------------------------------------------
@@ -1568,6 +2130,13 @@ combined_plot <- wrap_plots(plot_list, ncol = 4) +
 
 combined_plot
 #PostObsModel.pdf, 8 x 5
+
+combined_plot <- wrap_plots(plot_list, ncol = 3) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+combined_plot
+#PostObsModel.pdf, 7.5 x 8 (portrait)
 
 #--------------------- PLOT 2: ------------------------------------
 
@@ -1851,6 +2420,76 @@ ggplot() +
   )
 
 #PriorVsPosteriorFrag.pdf, 10 x 5.5
+
+
+ggplot() +
+  # Ribbons for uncertainty
+  geom_ribbon(
+    data = curve_summary,
+    aes(
+      x = PSA, ymin = lower, ymax = upper,
+      fill = type, color = type
+    ),
+    alpha = 0.3,
+    linewidth=0.1
+  ) +
+  # Median (or mean) dashed lines
+  geom_line(
+    data = curve_summary,
+    aes(
+      x = PSA, y = median,
+      color = type
+    ),
+    linewidth = 0.8,
+    linetype = "dashed"
+  ) +
+  # Survey points
+  geom_point(
+    data = survey_points,
+    aes(x = PSA, y = prop_dam, size = Build),
+    color = "black", alpha = 0.7
+  ) +
+  facet_wrap(~ structure_type, nrow=4, scales = "free") +
+  scale_fill_manual(values = fill_colors, name = NULL) +
+  scale_color_manual(values = fill_colors, name = NULL, guide = "none") +
+  scale_size_continuous(range = c(1, 6)) +
+  scale_x_continuous(expand = expansion(mult = c(0.01, 0.01))) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.01))) +
+  labs(
+    x = "PSA[T=0.3s] (g)",
+    y = "Probability of Damage",
+    title = "Fragility Curves with 95% Intervals: Prior vs Posterior"
+  ) +
+  theme_minimal(base_family = "Times New Roman") +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    #panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    axis.ticks.length = unit(0.15, "cm"),
+    plot.title = element_blank(), #element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    strip.text = element_text(size = 11),
+    legend.position = c(0.99, 0.005),
+    legend.justification = c(1, 0),
+    legend.box = "horizontal",
+    legend.background = element_rect(
+      fill = alpha("white", 0.8),
+      color = "black",
+      linewidth = 0.4
+    ),
+    legend.text = element_text(size = 10),
+    legend.key.height = unit(1.5, "lines")
+  )+ guides(
+    size = guide_legend(
+      title = "Sample size",
+      nrow = 3,
+      byrow = TRUE
+    )
+  )
+#PriorVsPosteriorFrag.pdf, 7.5 x 8 (portrait)
+
 
 
 target_structures <- c("RC MRF (1-3 Storeys)", "RC MRF (4-7 Storeys)", "RC MRF (8+ Storeys)")

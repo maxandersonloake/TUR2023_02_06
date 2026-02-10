@@ -311,9 +311,12 @@ fit_missing_accounted <- sampling(
   control = list(max_treedepth=15)
 )
 
+
+
 traceplot(fit_missing_accounted, pars=c('mu', 'beta', 'alph1', 'alph2'))
 
-plot(seq(0, 3, 0.01), plnorm(seq(0, 3, 0.01), 0.2, 1.3), ylim=c(0, 1))
+summary(fit_missing_accounted)
+#plot(seq(0, 3, 0.01), plnorm(seq(0, 3, 0.01), -1.15, 0.5), ylim=c(0, 1), xlim= c(0, 1.5))
 # 
 # ministrys_df_full$psa_rounded = round(ministrys_df_full$psa03_mean )/100
 # ministrys_df_full$damage_flag = ifelse(ministrys_df_full$GT >0, 1,0)
@@ -323,6 +326,40 @@ plot(seq(0, 3, 0.01), plnorm(seq(0, 3, 0.01), 0.2, 1.3), ylim=c(0, 1))
 #                                                           num_buildings = n())
 # 
 # ggplot(prop_damaged, aes(x=psa_rounded, y= prop_dam, size=num_buildings)) + geom_point() + xlim(0, 2.5)
+
+
+#------------------------------------------------------------------------------------------
+
+# Find 99th percentile of distribution
+
+post <- rstan::extract(fit_missing_accounted, pars = c("mu", "beta"))
+mu_draws  <- as.numeric(post$mu)    # vector of posterior draws for mu
+beta_draws <- as.numeric(post$beta) # vector of posterior draws for beta
+
+# Number of draws
+n_draws <- length(mu_draws)
+if(length(beta_draws) != n_draws) stop("mu and beta draws length mismatch")
+
+# 99th quantile on the standard normal
+z99 <- qnorm(0.99)  # ≈ 2.326348
+
+# Compute posterior samples of the PGA where CDF = 0.99
+pga99_samples <- exp(mu_draws + beta_draws * z99)
+
+# Summarize posterior of PGA_0.99
+pga99_summary <- c(
+  mean = mean(pga99_samples),
+  median = median(pga99_samples),
+  sd = sd(pga99_samples),
+  q2.5 = quantile(pga99_samples, 0.025),
+  q97.5 = quantile(pga99_samples, 0.975)
+)
+print(round(pga99_summary, 4))
+
+# Also report a point estimate using posterior means of mu and beta (optional)
+pga99_from_means <- exp(mean(mu_draws) + mean(beta_draws) * z99)
+cat("PGA_0.99 from posterior means: ", round(pga99_from_means, 4), "\n")
+
 #------------------------------------------------------------------------------------------
 
 posterior_samples_simple <- as_draws_df(fit_simple)
@@ -338,9 +375,9 @@ psa_grid <- seq(0, 1.5, 0.01)
 post_curves = map_dfr(1:50, function(j) {
   
   mu_post_sample_simple <- sample(mu_post_simple, 1)
-  beta_post_sample_missing_accounted <- sample(beta_post_simple, 1)
+  beta_post_sample_missing_accounted <- sample(beta_post_missing_accounted, 1)
   mu_post_sample_missing_accounted <- sample(mu_post_missing_accounted, 1)
-  beta_post_sample_simple <- sample(beta_post_missing_accounted, 1)
+  beta_post_sample_simple <- sample(beta_post_simple, 1)
   
   tibble(
     PSA = psa_grid,
@@ -440,7 +477,7 @@ ggplot() +
     panel.grid.minor = element_blank(),
     axis.ticks = element_line(color = "black"),
     axis.ticks.length = unit(0.15, "cm"),
-    legend.position = c(0.98, 0.26),         # Bottom right inside
+    legend.position = c(0.98, 0.02),         # Bottom right inside
     legend.justification = c(1, 0),          # Align to bottom right corner
     legend.box = "vertical",
     legend.background = element_rect(
