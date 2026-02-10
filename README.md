@@ -8,17 +8,14 @@ The scripts use two building damage datasets to perform joint Bayesian inference
 - `FullModel.R`: Performs main infererence, including loading data, defining priors, and plotting posterior distributions. 
 - `MinistrysExtractCities.R` : This script is used to reduce the size of the MEUCC dataset, filtering to buildings in the cities explored in the engineering survey data. 
 - `MinistrysAnalysis.R` : Used to perform basic fragility inference over the MEUCC data with and without accounting for building missingness.
-- `Posterior Summary` :  Posterior mean, 
+- `Posterior Summary` :  Contains the posterior mean, posterior standard deviation, quantiles, and convergence diagnostics from the full model fit perfomed in `FullModel.R` using `StanModels/FullModel.stan`.
 -  StanModels:
     - `StanModels/FullModel.stan` : Stan model used for full Bayesian inference of building damage fragility.
     - `StanModels/MinistrysFragCurves.stan` : Stan model used for simple Bayesian infernece over MEUCC data, without accounting for building mislabelling
     - `StanModels/MinistrysFragCurves_MissingAccounted.stan` : Stan model used for simple Bayesian infernece over MEUCC data, accounting for building mislabelling
 -  Data:
-    - `Data/Jaiswal_2023TurkiyeEQ_us6000jllz_field_str_damage_data.xlsx` :
-    - `Data/Jaiswal_Turkiye_fragilities.xlsx` : 
-    - `Data/ShakeMapUpd.xml.gz` :
-    - `Data/building_type_by_city.xlsx` : 
-    - `Data/building_type_overall.xlsx` :
+    - `Data/Jaiswal_2023TurkiyeEQ_us6000jllz_field_str_damage_data.xlsx` : Engineering Survey Data
+    - `Data/ShakeMapUpd.xml.gz` : ShakeMap for the M7.8 mainshock
 
 ## License
 
