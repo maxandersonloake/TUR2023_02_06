@@ -1,73 +1,89 @@
-library('rstan')
-library('openxlsx')
-library('tidyverse')
-library('dplyr')
-library('magrittr')
-library(XML)
-library(xml2)
+# --- Load Libraries -----------------------------------------------------------
+# Core tidy / spatial / Bayesian helpers used across scripts
+library(rstan)
+library(openxlsx)
+library(tidyverse)  
+library(XML)      
+library(xml2)     
 library(sf)
 library(raster)
 library(terra)
 library(posterior)
 library(MCMCprecision)
 library(gridExtra)
+library(magrittr)
+library(geodata)
+library(cowplot)
+library(pROC)
 
-get_IMT_from_xml <- function(xml_loc, IMT='pgv'){
-  #IMT = MMI, pga, pgv, psa03, psa10, or psa30
-  shake_xml_loc = read_xml(xml_loc)
-  grid <- xmlParse(shake_xml_loc)
+# --- rstan options ----------------------------------------------------------
+# speed up compilation and use multiple cores for sampling
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+
+# --- get_IMT_from_xml --------------------------------------------------------
+# Read a USGS ShakeMap XML and return a 'terra' raster for the requested IMT.
+# xml_loc: path or URL to ShakeMap XML
+# IMT: one of 'MMI', 'pga', 'pgv', 'psa03', 'psa10', 'psa30'
+get_IMT_from_xml <- function(xml_loc, IMT = "pgv") {
+  # supported IMTs (order assumed to match columns in grid_data after lon/lat)
+  IMTs <- c("MMI", "pga", "pgv", "psa03", "psa10", "psa30")
+  if (!IMT %in% IMTs) stop("IMT must be one of: ", paste(IMTs, collapse = ", "))
   
-  xml_data <- xmlToList(grid)
-  lines <- strsplit(xml_data$grid_data, "\n")[[1]] #strsplit(xml_data[[20]], "\n")[[1]]
+  # read xml (xml2 is used to support URLs and robust parsing)
+  xm <- xml2::read_xml(xml_loc)
+  # convert to XML::xmlParse/xmlToList for the original grid_data structure
+  parsed <- XML::xmlParse(xm)
+  xml_list <- XML::xmlToList(parsed)
   
-  longitude <- sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][1]))
-  latitude <- sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][2]))
+  # grid_data is usually a single text block with newline-separated rows
+  if (is.null(xml_list$grid_data)) stop("No grid_data element found in XML.")
+  lines <- strsplit(xml_list$grid_data, "\n")[[1]]
+  lines <- lines[nzchar(trimws(lines))]   # drop empty lines
   
-  IMTs = c('MMI', 'pga', 'pgv', 'psa03', 'psa10', 'psa30')
-  IMT_match = which(IMTs==IMT)
-  IMT_vals =  sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][IMT_match+2]))
+  # parse lon/lat and the chosen IMT value from each line
+  # each line expected to be whitespace-separated, e.g. "lon lat MMI pga pgv psa03 psa10 psa30"
+  parts <- strsplit(lines, "\\s+")
+  lon <- vapply(parts, function(x) as.numeric(x[1]), numeric(1))
+  lat <- vapply(parts, function(x) as.numeric(x[2]), numeric(1))
   
-  # MMI <- sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][3]))
-  # pga <-  sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][4]))
-  # pgv <- sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][5]))
-  # psa03 <- sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][6]))
-  # psa10 <- sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][7]))
-  # psa30 <- sapply(lines, function(x) as.numeric(strsplit(x, " ")[[1]][8]))
+  # IMT column index is offset by 2 (lon, lat) -> 3..8
+  imt_index <- which(IMTs == IMT) + 2
+  imt_vals <- vapply(parts, function(x) as.numeric(x[imt_index]), numeric(1))
   
-  plot_df <- data.frame(longitude=longitude, latitude=latitude, setNames(list(IMT_vals), IMT))#intensities=intensities, pga=pga)
+  # assemble data.frame and round coordinates so grid becomes regularly spaced
+  df <- data.frame(longitude = lon, latitude = lat, value = imt_vals)
+  # original code removed first row; keep behavior but check size first
+  if (nrow(df) > 1) df <- df[-1, ]
   
-  grid = plot_df[-1,]
-  grid$longitude = round(grid$longitude * 60 * 2)/60/2 #correct rounding issues to create an evenly spaced grid
-  grid$latitude = round(grid$latitude * 60 * 2)/60/2 #correct rounding issues to create an evenly spaced grid
-  meanhaz <- rast(x = grid, type = "xyz", crs = "EPSG:4326")
-  names(meanhaz) = paste0(IMT, '_mean')
-  return(meanhaz)
+  # round to 30 arcsec (0.5 arcminute) grid to correct tiny floating errors
+  df$longitude <- round(df$longitude * 60 * 2) / (60 * 2)
+  df$latitude  <- round(df$latitude  * 60 * 2) / (60 * 2)
+  
+  # convert to terra raster (x=lon, y=lat, z=value)
+  rast_obj <- terra::rast(x = df, type = "xyz", crs = "EPSG:4326")
+  names(rast_obj) <- paste0(IMT, "_mean")
+  return(rast_obj)
 }
 
-generate_plot_df <- function(stan_fit, pars=c('mu', 'sigma'), model_func='plnorm'){
-  x_vals <- seq(-1, 2, length.out = 100)
-  posterior_samples <- as.data.frame(rstan::extract(stan_fit, pars = pars))
-  posterior_samples <- posterior_samples[sample(1:nrow(posterior_samples), 100), ]
-  
-  pars[1] = gsub("\\[|\\]", ".", pars[1])
-  pars[2] = gsub("\\[|\\]", ".", pars[2])
-  
-  regr_function = get(model_func)
-  cdf_samples <- posterior_samples %>%
-    expand_grid(x = x_vals) %>%
-    mutate(prob = regr_function(x, get(pars[1]), get(pars[2])))
-  
-  par1_mean <- mean(pull(posterior_samples[pars[1]]))
-  par2_mean <- mean(pull(posterior_samples[pars[2]]))
-  
-  cdf_mean <- data.frame(
-    x = x_vals,
-    prob = regr_function(x_vals, par1_mean, par2_mean)
-  )
-  
-  return(list(cdf_samples=cdf_samples, cdf_mean=cdf_mean))
-} 
+#----------------- Attempt to load file, if not raise error --------------------
 
-# Set options for faster compilation
-rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())  # Use multiple CPU cores
+check_and_read <- function(filename, url) {
+  filepath <- file.path(dir, "Data", filename)
+  
+  if (!file.exists(filepath)) {
+    stop(
+      paste0(
+        "Required file not found: ", filepath, "\n\n",
+        "Please download it from:\n",
+        url, "\n\n",
+        "and save it to:\n",
+        filepath
+      ),
+      call. = FALSE
+    )
+  }
+  
+  read.csv(filepath)
+}
+
