@@ -26,6 +26,21 @@ The scripts use two building damage datasets to perform joint Bayesian inference
 
 ## License
 
+### Code
+
+All source code in this repository is licensed under the MIT License.
+See the LICENSE file for full details.
+
+### Data
+
+The data file:
+
+`Data/Jaiswal_2023TurkiyeEQ_us6000jllz_field_str_damage_data.xlsx`
+
+is licensed under the Creative Commons Attribution 4.0 International (CC BY 4.0) license. You are free to share and adapt the material provided that appropriate credit is given to the original source.
+
+Full license details:
+https://creativecommons.org/licenses/by/4.0/
 
 ## Contact
 
