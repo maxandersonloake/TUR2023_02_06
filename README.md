@@ -17,7 +17,7 @@ The scripts use two building damage datasets to perform joint Bayesian inference
     - `Data/Jaiswal_2023TurkiyeEQ_us6000jllz_field_str_damage_data.xlsx` : Engineering Survey Data
     - `Data/ShakeMapUpd.xml.gz` : ShakeMap for the M7.8 mainshock
 - ModelFits:
-    - `ModelFits/FullFit2026-02-12' : A stanfit object containing a full model fit. This can be read into R using readRDS() and posterior samples can be accessed using extract(). Results plots can be produced using functions in `FullModel.R'.
+    - `ModelFits/FullFit2026-02-12` : A stanfit object containing a full model fit. This can be read into R using readRDS() and posterior samples can be accessed using extract(). Results plots can be produced using functions in `FullModel.R'.
 
 ## Instructions to run scripts
 
