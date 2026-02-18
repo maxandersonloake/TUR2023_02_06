@@ -1418,9 +1418,6 @@ rhats[which(rhats > 1.01)]
 # Traceplots for key parameters to visually inspect mixing
 rstan::traceplot(fit, pars=c('nu_0', 'nu_1', 'kappa_0', 'kappa_1'))
 
-# Example extraction: posterior predictive unobserved parameter (if present)
-samples <- rstan::extract(fit, pars = "p_ministrys_unobserved")$p_ministrys_unobserved
-
 
 # ----------------------------------------------------------------------------------------------
 # --------------------------------- Overall param plot -----------------------------------------
@@ -1524,8 +1521,8 @@ combined_plot
 # Save as : PriorPostSuppParams.pdf, 10 x 3
 
 # Alternative layout with legend at bottom
-p_nu + p_kappa + p_sigma + plot_layout(guides = "collect") & theme(legend.position = "bottom")
-# Save as : PriorPostSuppParams.pdf, 8 x 3.25
+p_nu + p_kappa + p_sigma + plot_layout(guides = "collect") #& theme(legend.position = "bottom")
+# Save as : PriorPostSuppParams.pdf, 8 x 3.25 # 10 x 3
 
 
 # ----------------------------------------------------------------------------------------------
@@ -1597,7 +1594,7 @@ plot_list <- lapply(unique(plot_df$structure_type), function(st) {
       plot.title = element_text(hjust = 0.5, size = 10),
       axis.title = element_text(size = 9),
       axis.text = element_text(size = 8),
-      legend.position = c(0.98, 0.02),
+      legend.position = 'bottom',
       axis.title.y = element_blank(),
       legend.justification = c(1, 0),
       legend.box = "vertical",
@@ -1610,6 +1607,16 @@ plot_list <- lapply(unique(plot_df$structure_type), function(st) {
       legend.key.height = unit(1.5, "lines")
     )
 })
+
+wrap_plots(plot_list, ncol = 4) +
+  plot_layout(guides = "collect") +
+  plot_annotation(theme = theme(
+    legend.position = "bottom",
+    legend.justification = "center",
+    legend.box = "horizontal"
+  )) &
+  guides(fill = guide_legend(nrow = 1))
+# Save as : PostObsModel.pdf, 8 x 5
 
 # Combine into grid with shared legend
 combined_plot <- wrap_plots(plot_list, ncol = 4) +
@@ -1670,10 +1677,19 @@ plot_list <- lapply(unique(plot_df$structure_type), function(st) {
 })
 
 library(patchwork)
-combined_plot <- wrap_plots(plot_list, ncol = 4) + 
-  plot_layout(guides = "collect") & 
-  theme(legend.position = "bottom")
-combined_plot
+# combined_plot <- wrap_plots(plot_list, ncol = 4) + 
+#   plot_layout(guides = "collect") & 
+#   theme(legend.position = "bottom")
+# combined_plot
+
+wrap_plots(plot_list, ncol = 4) +
+  plot_layout(guides = "collect") +
+  plot_annotation(theme = theme(
+    legend.position = "bottom",
+    legend.justification = "center",
+    legend.box = "horizontal"
+  )) &
+  guides(fill = guide_legend(nrow = 1))
 
 # --------------------- PLOT 3: Zone-level posterior comparisons ------------------------------
 
@@ -1723,12 +1739,21 @@ plot_list <- lapply(unique(plot_df$structure_type), function(st) {
     )
 })
 
-# Combine the zone plots into a grid
-combined_plot <- wrap_plots(plot_list, ncol = 4) +
-  plot_layout(guides = "collect") & 
-  theme(legend.position = "bottom")
+wrap_plots(plot_list, ncol = 4) +
+  plot_layout(guides = "collect") +
+  plot_annotation(theme = theme(
+    legend.position = "bottom",
+    legend.justification = "center",
+    legend.box = "horizontal"
+  )) &
+  guides(fill = guide_legend(nrow = 1))
 
-combined_plot
+# Combine the zone plots into a grid
+# combined_plot <- wrap_plots(plot_list, ncol = 4) +
+#   plot_layout(guides = "collect") & 
+#   theme(legend.position = "bottom")
+# 
+# combined_plot
 
 
 # ---------------------------------------------------------------
@@ -1936,125 +1961,3 @@ ggplot() +
     )
   )
 # Save as : PriorVsPosteriorFrag.pdf, 7.5 x 8 (portrait)
-
-
-# The remaining code below constructs posterior curve diagnostics and comparators
-# It plots posterior fragility curves and overlays reference lognormal CDFs
-# It also draws many small multi-panel base-R plots for prior vs posterior visual checks
-
-target_structures <- c("RC MRF (1-3 Storeys)", "RC MRF (4-7 Storeys)", "RC MRF (8+ Storeys)")
-
-posterior_plot_data <- all_curves %>%
-  filter(type == "Posterior", structure_type %in% target_structures)
-
-lognorm_curves <- tibble()
-
-# Prepare some labelled reference lognormal CDFs for direct comparison
-labelled_lognorms <- tibble(
-  label = c("Reinforced concrete, Infilled frame, High code, Moderate ductility, 1 storey", 
-            "Reinforced concrete, Infilled frame, High code, Moderate ductility, 3 storey", 
-            "Reinforced concrete, Infilled frame, High code, Moderate ductility, 6 storey"),
-  meanlog = c(0.25873007, -0.76894697, -1.50332700),
-  sdlog = c(0.4868709, 0.6728247, 0.5926148),
-  line_type = c("solid", "dotdash", "twodash")
-)
-
-# Generate CDF lines for reference curves on a PGV grid
-pgv_grid <- seq(0.01, 1.7, 0.01)
-lognorm_curves <- labelled_lognorms %>%
-  rowwise() %>%
-  mutate(data = list(tibble(
-    PGV = pgv_grid,
-    prob = plnorm(pgv_grid, meanlog, sdlog)
-  ))) %>%
-  unnest(data)
-
-# Plot posterior curves (posterior_plot_data expected to have PGV & prob) and reference lines
-ggplot() +
-  geom_line(data = posterior_plot_data,
-            aes(x = PGV, y = prob, group = curve_id, color = structure_type),
-            alpha = 0.4) +
-  geom_line(data = lognorm_curves,
-            aes(x = PGV, y = prob, linetype = label),
-            color = "black", size = 1) +
-  scale_color_viridis_d(option = "D") +
-  scale_linetype_manual(values = c("solid", "dotdash", "twodash")) +
-  labs(x = "PGV", y = "P(Damage)", title = "Posterior Fragility Curves with Reference Lognormal CDFs",
-       color = "Posterior Fragility Curves", linetype = "Reference Curve") +
-  theme_minimal()
-
-
-# ... similar plotting repeated for RC Wall structures below ...
-
-target_structures <- c("RC Wall (1-3 Storeys)", "RC Wall (4-7 Storeys)", "RC Wall (8+ Storeys)")
-
-posterior_plot_data <- all_curves %>%
-  filter(type == "Posterior", structure_type %in% target_structures)
-
-labelled_lognorms <- tibble(
-  label = c("Reinforced concrete, Wall, High code, High ductility, 7 storey RES", 
-            "Reinforced concrete, Wall, High code, Moderate ductility, 7 storeys RES"),
-  meanlog = c(0.20096261, 0.08368013),
-  sdlog = c(0.6306427, 0.6599120),
-  line_type = c("solid", "dotdash")
-)
-
-pgv_grid <- seq(0.01, 1.7, 0.01)
-
-lognorm_curves <- labelled_lognorms %>%
-  rowwise() %>%
-  mutate(data = list(tibble(
-    PGV = pgv_grid,
-    prob = plnorm(pgv_grid, meanlog, sdlog)
-  ))) %>%
-  unnest(data)
-
-ggplot() +
-  geom_line(data = posterior_plot_data,
-            aes(x = PGV, y = prob, group = curve_id, color = structure_type),
-            alpha = 0.4) +
-  geom_line(data = lognorm_curves,
-            aes(x = PGV, y = prob, linetype = label),
-            color = "black", size = 1) +
-  scale_color_viridis_d(option = "D") +
-  scale_linetype_manual(values = c("solid", "dotdash")) +
-  labs(x = "PGV", y = "P(Damage)", title = "Posterior Fragility Curves with Reference Lognormal CDFs",
-       color = "Posterior Fragility Curves", linetype = "Reference Curve") +
-  theme_minimal()
-
-
-# ----------------------------------------------------------------
-# The last block below uses base R plotting to show prior vs posterior
-# for each structure type with many overlayed lines and survey points.
-# ----------------------------------------------------------------
-
-field_data$rounded_PGV = round(field_data$PGV_mean * 200) / 200
-prior_dist_frag = 'rnorm'
-posterior_samples <- as_draws_df(fit)
-
-# Multi-panel base-R plotting: prior (blue) vs posterior (red) with survey points
-par(mfrow=c(3,4))
-for (i in 1:NROW(prior_frag_structure_type)){
-  plot(x=0, y=0,xlim=c(0,1.7), ylim=c(0,1), col='white', main=rownames(prior_frag_structure_type)[i], xlab='PGV', ylab='P(Damage)')
-  # plot some prior realizations in blue
-  for (j in 1:50){
-    mu_prior = do.call(get(prior_dist_frag), as.list(c(1,as.numeric(prior_frag_structure_type[i,1]), as.numeric(prior_frag_structure_type[i,2]))))
-    sigma_prior = do.call(get(prior_dist_frag), as.list(c(1,as.numeric(prior_frag_structure_type[i,3]), as.numeric(prior_frag_structure_type[i,4]))))
-    lines(seq(0,1.7,0.01), plnorm(seq(0,1.7,0.01), mu_prior, sigma_prior), col='blue')
-  }
-  # overlay posterior realizations in red
-  mu_post <- pull(posterior_samples[, grep(paste0("^mu\\[", i, "\\]"), names(posterior_samples))])
-  beta_post <- pull(posterior_samples[, grep(paste0("^beta\\[", i, "\\]"), names(posterior_samples))])
-  
-  for (j in 1:50){
-    mu_post_sample = sample(mu_post, 1)
-    beta_post_sample = sample(beta_post, 1)
-    lines(seq(0,1.7,0.01), plnorm(seq(0,1.7,0.01), mu_post_sample, beta_post_sample), col='red')
-  }
-  # Add survey points sized by sample count
-  survey_dat = field_data %>% filter(structure_type == levels(field_data$structure_type)[i]) %>% group_by(rounded_PGV) %>% summarise(prop_dam = mean(GT >=1), Build = n())
-  for (j in 1:NROW(survey_dat)){
-    points(survey_dat[j,1], survey_dat[j,2], pch=19, cex=as.numeric(log(survey_dat[j,3]+1)))
-  }
-}
-par(mfrow=c(1,1))
