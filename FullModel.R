@@ -1097,13 +1097,15 @@ for (k in 1:dim(buildingtypes_priorprob)[3]) {
   buildingtypes_priorprob[,,k] <- sweep(slice, 2, cs, FUN = "/")
 }
 
-# Some ad-hoc prior override for URM dest
-prior_frag_URM_dest = as.numeric(prior_frag_structure_type[NROW(prior_frag_structure_type),])
-prior_frag_URM_dest[1] = 0.5
 
 # Compute mean PSA by city in field data (used later as covariate)
 mean_PSA_by_city = field_data %>% group_by(City) %>% summarise(mean_PSA=mean(`SA(0.3)_mean`))
 
+saveRDS(list(
+  prior_frag_structure_type = prior_frag_structure_type,
+  buildingtypes_priorprob = aperm(buildingtypes_priorprob, c(2,3,1)),
+  zone_priorprob = zone_per_city_probs[,1:4]
+), paste0(dir, 'Data/Priors'))
 
 # ----------------------------------------------------------------------------------------------
 # --------------------------------------- Fit Model --------------------------------------------
@@ -1143,7 +1145,6 @@ stan_data <- list(
   
   # Priors:
   prior_frag_structure_type = prior_frag_structure_type,
-  prior_frag_URM_dest =  prior_frag_URM_dest,
   buildingtypes_priorprob = aperm(buildingtypes_priorprob, c(2,3,1)),
   zone_priorprob = zone_per_city_probs[,1:4],
   alpha_D = 5,
@@ -1172,6 +1173,77 @@ saveRDS(fit,paste0(dir, 'StanFits/fullfit', Sys.Date()))
 
 # Write posterior summary as CSV
 write.csv(summary(fit)$summary, paste0(dir, 'PosteriorSummaryFeb12'))
+
+
+#------------------------------------ Assess posterior correlation ----------------------------
+
+#fullfit <- readRDS('/home/manderso/Documents/GitHub/TUR2023_02_06/ModelFits/FullFit2026-02-12')
+ess_summary <- summarise_draws(fullfit)
+
+# Focus only on ESS metrics
+ess_table <- ess_summary %>%
+  dplyr::select(variable, ess_bulk, ess_tail, rhat) %>%
+  arrange(ess_bulk) # Show most problematic parameters first
+
+print(ess_table)
+
+library(ggcorrplot)
+# --- 1. Identify all target parameters ---
+mu_names <- paste0("mu[", 1:11, "]")
+beta_names <- paste0("beta[", 1:11, "]")
+y_params <- c(mu_names, beta_names)
+
+# Generate names for all 10 cities, all 4 zones, and 11 types
+btp_all_zones <- expand.grid(type = 1:11, zone = 1:4, city = 1:10) %>%
+  mutate(name = paste0("buildingTypeProbs[", city, ",", zone, ",", type, "]"))
+
+target_params <- c(y_params, btp_all_zones$name)
+
+# --- 2. Extract and compute correlation matrix ---
+# Ensure 'fit' is your stan fit object
+cor_matrix_full <- as.data.frame(fit) %>%
+  dplyr::select(all_of(target_params)) %>%
+  cor()
+
+# --- 3. Pivot to Long Format for Faceting ---
+# Subset: Rows are mu/beta, Columns are all buildingTypeProbs
+cor_subset <- cor_matrix_full[y_params, btp_all_zones$name]
+
+cor_long_all <- as.data.frame(cor_subset) %>%
+  mutate(y_var = factor(rownames(.), levels = y_params)) %>%
+  pivot_longer(-y_var, names_to = "x_var", values_to = "correlation") %>%
+  mutate(
+    # Extract Zone number (the middle index) for faceting
+    zone = stringr::str_extract(x_var, "(?<=\\,)\\d+(?=\\,)"),
+    zone_label = paste("Zone", zone)
+  )
+
+# --- 4. Plotting (Stacked Vertically) ---
+ggplot(cor_long_all, aes(x = x_var, y = y_var, fill = correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(
+    low = "#440154", mid = "white", high = "#1FA187", 
+    midpoint = 0, limit = c(-1, 1)
+  ) +
+  # Stack plots vertically by zone
+  facet_wrap(~ zone_label, ncol = 1, scales = "free_x") +
+  theme_minimal(base_family = "Times New Roman") +
+  theme(
+    # Very small x-axis labels to handle the 110 parameters per row
+    axis.text.x = element_text(size = 3, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 7),
+    panel.grid = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(face = "bold", size = 10),
+    panel.spacing = unit(0.5, "lines")
+  ) +
+  labs(
+    title = "Fragility vs. Taxonomy Correlation across Zones",
+    subtitle = "Y-axis: Global Fragility (Mu/Beta) | X-axis: City-level Taxonomy Proportions",
+    x = "Building Proportions (buildingTypeProbs[City, Zone, Type])",
+    y = "Fragility Parameters",
+    fill = "Corr"
+  )
 
 
 #------------------------------------ Fit sensitivity analysis --------------------------------
@@ -1203,7 +1275,6 @@ stan_data <- list(
   
   # Priors:
   prior_frag_structure_type = prior_frag_structure_type,
-  prior_frag_URM_dest =  prior_frag_URM_dest,
   buildingtypes_priorprob = aperm(buildingtypes_priorprob, c(2,3,1)),
   zone_priorprob = zone_per_city_probs[,1:4],
   alpha_D = 5,
@@ -1406,6 +1477,8 @@ p <- ggplot() +
 
 print(p)
 # Save as: PostSensitivity.pdf, 3 x 8.5
+
+
 
 # ----------------------------------------------------------------------------------------------
 # ----------------------------------- MCMC Diagnostics -----------------------------------------

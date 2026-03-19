@@ -15,6 +15,10 @@ library(magrittr)
 library(geodata)
 library(cowplot)
 library(pROC)
+library(MASS)   
+library(gtools) 
+library(tidybayes)
+library(patchwork)
 
 # --- rstan options ----------------------------------------------------------
 # speed up compilation and use multiple cores for sampling
@@ -86,4 +90,59 @@ check_and_read <- function(filename, url) {
   
   read.csv(filepath)
 }
+
+#---------------- Compare Multinomial-Dirichlet Models -------------------------
+library(gtools)
+
+set.seed(1234)  # reproducible
+
+# Parameters
+alphas <- c(100, 5, 1)            # concentration parameters to show
+base_p <- rep(0.2, 5)  # underlying base proportions for categories A-E
+cats <- c("A", "B", "C", "D", "E")
+n_samples <- 4                    # number of independent samples per alpha
+n_count <- 100                    # sample size for each multinomial draw
+
+# Plot layout: 3 rows x 4 columns (one row per alpha, 4 samples each)
+op <- par(mfrow = c(length(alphas), n_samples),
+          mar = c(3.2, 3.2, 2.8, 1),  # margins: bottom, left, top, right
+          oma = c(2, 2, 3, 2))       # outer margins for a big title
+
+# Colors for each alpha row (pick any you like)
+row_cols <- c("#56B4E9", "#F0E442", "#D55E00")  # blue, yellow, orange-red
+
+for (i in seq_along(alphas)) {
+  alpha <- alphas[i]
+  col_fill <- row_cols[i]
+  
+  for (s in 1:n_samples) {
+    # sample Dirichlet proportions with concentration alpha
+    # rdirichlet expects a parameter vector; we use alpha * base_p
+    p <- as.vector(gtools::rdirichlet(1, alpha * base_p))
+    # draw multinomial counts
+    counts <- as.vector(rmultinom(1, size = n_count, prob = p))
+    
+    # barplot
+    bp <- barplot(counts,
+                  names.arg = cats,
+                  #ylim = c(0, 100),        # common y-axis across all plots
+                  las = 1,                 # horizontal labels
+                  yaxt = "n",              # we'll add y-axis ticks selectively
+                  main = paste0("Sample ", s),
+                  col = col_fill,
+                  border = "white")
+    # add y-axis ticks only on first column to reduce clutter
+    if (s == 1) axis(2, at = seq(0, 100, by = 20), las = 1)
+    # add a small subtitle in the first column describing alpha
+    if (s == 1) mtext(bquote(alpha == .(alpha)), side = 3, line = 0.2, adj = -0.1, cex = 0.9)
+  }
+}
+
+# Overall title
+mtext("Four independent draws per row: Dirichlet-Multinomial (n = 100)",
+      outer = TRUE, cex = 1, line = 1)
+
+# restore par
+par(op)
+
 
