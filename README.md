@@ -6,7 +6,8 @@ The scripts use two building damage datasets to perform joint Bayesian inference
 
 - `Functions.R`: Loads all required R packages and defines shared utility functions. It must be sourced by the other scripts before use.
 - `MinistrysAnalysis.R` : Used to load and manipulate the MEUCC data, and perform basic fragility inference over the MEUCC data with and without accounting for building missingness.
-- `MinistrysExtractCities.R` : This script is used to reduce the size of the MEUCC dataset, filtering to buildings in the cities explored in the engineering survey data. 
+- `MinistrysExtractCities.R` : This script is used to reduce the size of the MEUCC dataset, filtering to buildings in the cities explored in the engineering survey data.
+- `SimulatedDataTest.R` : Generates synthetic data and evaluates model performance on this data.
 - `FullModel.R`: Performs main infererence, including loading data, defining priors, and plotting posterior distributions. 
 - `Posterior Summary` :  Contains the posterior mean, posterior standard deviation, quantiles, and convergence diagnostics from the full model fit perfomed in `FullModel.R` using `StanModels/FullModel.stan`.
 -  StanModels:
